@@ -1,0 +1,12 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'>
+	<rect width='240' height='120' fill='#f7fbff'/>
+	<g stroke='#1d2f3a' stroke-width='4' fill='none'>
+		<line x1='34' y1='60' x2='110' y2='60'/>
+		<line x1='110' y1='60' x2='170' y2='36'/>
+		<line x1='110' y1='60' x2='170' y2='84'/>
+	</g>
+	<text x='16' y='66' font-size='22' fill='#1d2f3a'>R</text>
+	<text x='174' y='42' font-size='22' fill='#1d2f3a'>R</text>
+	<text x='174' y='90' font-size='22' fill='#1d2f3a'>H</text>
+	<text x='108' y='66' font-size='22' fill='#2b6f40'>N</text>
+</svg>

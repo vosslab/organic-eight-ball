@@ -1,0 +1,58 @@
+{
+	"groups": [
+		{
+			"id": "alcohol",
+			"display_name": "Alcohol",
+			"image": "assets/groups/alcohol.svg",
+			"aliases": ["alcohol", "hydroxyl", "hydroxy"]
+		},
+		{
+			"id": "aldehyde",
+			"display_name": "Aldehyde",
+			"image": "assets/groups/aldehyde.svg",
+			"aliases": ["aldehyde", "formyl"]
+		},
+		{
+			"id": "ketone",
+			"display_name": "Ketone",
+			"image": "assets/groups/ketone.svg",
+			"aliases": ["ketone", "oxo"]
+		},
+		{
+			"id": "carboxylic_acid",
+			"display_name": "Carboxylic acid",
+			"image": "assets/groups/carboxylic_acid.svg",
+			"aliases": ["carboxylic acid", "carboxyl", "acid"]
+		},
+		{
+			"id": "amine",
+			"display_name": "Amine",
+			"image": "assets/groups/amine.svg",
+			"aliases": ["amine", "amino"]
+		},
+		{
+			"id": "amide",
+			"display_name": "Amide",
+			"image": "assets/groups/amide.svg",
+			"aliases": ["amide"]
+		},
+		{
+			"id": "ester",
+			"display_name": "Ester",
+			"image": "assets/groups/ester.svg",
+			"aliases": ["ester"]
+		},
+		{
+			"id": "alkene",
+			"display_name": "Alkene",
+			"image": "assets/groups/alkene.svg",
+			"aliases": ["alkene", "olefin"]
+		},
+		{
+			"id": "benzene",
+			"display_name": "Aromatic ring",
+			"image": "assets/groups/benzene.svg",
+			"aliases": ["aromatic ring", "benzene", "phenyl", "arene"]
+		}
+	]
+}

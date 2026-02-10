@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Organic Eight Ball</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+<body>
+	<section id="setup-modal" class="setup-modal">
+		<div class="setup-card panel">
+			<h2>Game setup</h2>
+			<label for="human-count">Number of players</label>
+			<input id="human-count" type="number" min="1" max="8" value="1">
+			<label for="npc-count">Number of NPCs</label>
+			<input id="npc-count" type="number" min="0" max="8" value="1">
+			<button id="start-game-btn" type="button">Start Game</button>
+		</div>
+	</section>
+	<section id="onboarding-modal" class="setup-modal hidden">
+		<div class="setup-card panel">
+			<h2>How this works</h2>
+			<ol class="onboard-list">
+				<li>Answer correctly to unlock your shot.</li>
+				<li>Click and drag from the white cue ball to aim and set power.</li>
+				<li>Release to shoot. After balls settle, a new question appears.</li>
+			</ol>
+			<button id="onboarding-dismiss-btn" type="button">Got it</button>
+		</div>
+	</section>
+	<main class="app">
+		<header class="panel">
+			<h1>Organic Eight Ball</h1>
+			<p class="subhead">
+				Pool-themed quiz game (not regulation 8-ball): answer first, then take your shot.
+			</p>
+		</header>
+		<section class="panel status-banner" id="status-banner">
+			<p class="status-title">Quiz First Mode: answer before shooting.</p>
+			<p id="status-detail" class="status-detail">Player 1 turn | Shot locked</p>
+		</section>
+
+		<section class="sim-wrap">
+			<canvas id="sim-canvas" width="960" height="540" aria-label="2D pool table"></canvas>
+			<div id="window" class="window">
+				<p class="label">functional group challenge</p>
+				<img id="group-image" class="group-image" alt="Functional group to identify">
+				<p id="answer-text">Player 1: answer correctly to unlock the shot.</p>
+				<p id="answer-meta" class="meta">Score: 0/0</p>
+			</div>
+		</section>
+		<section class="panel howto-panel">
+			<h2>How to play</h2>
+			<ul>
+				<li>Answer correctly to unlock your shot.</li>
+				<li>Pick one multiple-choice answer button.</li>
+				<li>Click and drag from the white cue ball to aim and set power.</li>
+				<li>Release to shoot.</li>
+				<li>After balls settle, a new question appears.</li>
+			</ul>
+			<p class="note">This is a pool-themed quiz, not full regulation 8-ball rules.</p>
+		</section>
+
+		<section class="controls panel">
+			<button id="shake-btn" type="button">Rack and Break</button>
+			<div id="choices" class="choices" aria-label="Multiple choice answers"></div>
+			<button id="next-btn" type="button">Next Group</button>
+		</section>
+	</main>
+	<script src="app.js"></script>
+</body>
+</html>

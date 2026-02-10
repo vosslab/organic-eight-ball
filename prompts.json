@@ -1,0 +1,73 @@
+{
+	"prompts": [
+		{
+			"id": "org_01",
+			"text": "Equilibrium leans yes, but only with clean stoichiometry.",
+			"tags": ["organic", "equilibrium"],
+			"weight": 9
+		},
+		{
+			"id": "org_02",
+			"text": "Activation energy looks high. Warm it and ask again.",
+			"tags": ["organic", "activation_high"],
+			"weight": 8
+		},
+		{
+			"id": "org_03",
+			"text": "Solvent dependent result. Polar medium favors progress.",
+			"tags": ["organic", "solvent_sensitive"],
+			"weight": 8
+		},
+		{
+			"id": "bio_01",
+			"text": "pH sensitive state. Buffer before trust.",
+			"tags": ["biochem", "ph_sensitive"],
+			"weight": 8
+		},
+		{
+			"id": "bio_02",
+			"text": "Enzyme mood: cooperative, but not guaranteed.",
+			"tags": ["biochem", "conditional_yes"],
+			"weight": 7
+		},
+		{
+			"id": "phys_01",
+			"text": "Entropy favored path, kinetics still negotiates.",
+			"tags": ["physical_chem", "entropy_favored"],
+			"weight": 9
+		},
+		{
+			"id": "spec_01",
+			"text": "Signal is noisy. Collect one more spectrum.",
+			"tags": ["spectroscopy", "uncertain"],
+			"weight": 7
+		},
+		{
+			"id": "base_01",
+			"text": "Current state: maybe, pending better mixing.",
+			"tags": ["baseline", "vortex_bias"],
+			"weight": 10
+		},
+		{
+			"id": "rare_01",
+			"text": "Triple collision event. Rare yes with caveats.",
+			"tags": ["rare", "triple_collision", "conditional_yes"],
+			"weight": 1,
+			"unlock": "triple_collision"
+		},
+		{
+			"id": "rare_02",
+			"text": "Near-perfect rest detected. Quiet no, maybe reversible.",
+			"tags": ["rare", "near_perfect_rest", "conditional_no"],
+			"weight": 1,
+			"unlock": "near_perfect_rest"
+		},
+		{
+			"id": "rare_03",
+			"text": "Long vortex observed. Outcome swirls toward yes.",
+			"tags": ["rare", "long_vortex", "conditional_yes"],
+			"weight": 1,
+			"unlock": "long_vortex"
+		}
+	]
+}
