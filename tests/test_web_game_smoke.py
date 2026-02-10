@@ -127,12 +127,16 @@ def test_js_contains_turn_and_gate_rules() -> None:
 	required_fragments = (
 		"let shotUnlocked = false;",
 		"function switchTurn()",
-		"if (!shotUnlocked)",
+		"phase !== PHASE_SHOT_READY || !shotUnlocked",
 		"Player",
 		"startGameFromSetup",
 		"npcTryAnswer",
 		"renderChoices",
 		"handleChoiceAnswer",
+		"handleNextGroupRequest",
+		"planNpcShotVector",
+		"NPC_MIN_SHOT_SPEED",
+		"NPC_MAX_SHOT_SPEED",
 		"updateStatusBanner",
 		"Shot locked: answer first.",
 		"PHASE_QUESTION_ACTIVE",
@@ -142,8 +146,23 @@ def test_js_contains_turn_and_gate_rules() -> None:
 		"setPhase(PHASE_BALLS_MOVING)",
 		"setPhase(PHASE_QUESTION_ACTIVE)",
 		"setPointerCapture",
+		"releasePointerCapture",
 		"pointercancel",
 		"lostpointercapture",
+		"clearScheduledActions",
+		"scheduleAction",
+		"if (phase !== PHASE_BALLS_MOVING)",
+		"buildRackNumbers",
+		"rackRows[2][1] = 8",
+		"SUIT_COLORS",
+		"SOLIDS",
+		"STRIPES",
+		"pocketedByPocket",
+		"onBallPocketed",
+		"playerStats",
+		"emitCollisionAudio",
+		"emitPocketAudio",
+		"updateMuteButton",
 	)
 	for fragment in required_fragments:
 		assert fragment in js
@@ -224,3 +243,67 @@ def test_hidden_overlay_pointer_events_guard_present() -> None:
 	css = read_text(STYLE_CSS)
 	assert ".is-hidden" in css
 	assert "pointer-events: none" in css
+
+
+#============================================
+def test_rack_and_ball_identity_contracts_present() -> None:
+	"""
+	Ensure app defines full 8-ball rack identity primitives.
+	"""
+	js = read_text(APP_JS)
+	for number in range(1, 16):
+		assert f"{number}:" in js
+	assert "ballSuitForNumber" in js
+	assert "number === 8" in js
+	assert "ball.suit === STRIPES" in js
+
+
+#============================================
+def test_unlock_and_turn_flow_contracts_present() -> None:
+	"""
+	Ensure correct answer unlocks shot and wrong answer passes turn.
+	"""
+	js = read_text(APP_JS)
+	assert "shotUnlocked = true;" in js
+	assert "setPhase(PHASE_SHOT_READY)" in js
+	assert "switchTurn();" in js
+	assert "beginShotContext" in js
+	assert "finishShotContextAndAdvanceTurn" in js
+
+
+#============================================
+def test_pocket_tracking_and_scoring_contracts_present() -> None:
+	"""
+	Ensure pocketed balls are tracked and score updates are wired.
+	"""
+	js = read_text(APP_JS)
+	assert "ball.active = false;" in js
+	assert "ball.pocketId = pocketId;" in js
+	assert "pocketedByPocket[pocketId].push(ball);" in js
+	assert "shooter.pocketed += 1;" in js
+	assert "shooter.solids += 1;" in js
+	assert "shooter.stripes += 1;" in js
+
+
+#============================================
+def test_rack_build_contract_has_full_16_ball_model() -> None:
+	"""
+	Ensure rack model includes cue plus 15 object balls with 8 centered.
+	"""
+	js = read_text(APP_JS)
+	assert "for (let row = 0; row < 5; row += 1)" in js
+	assert "for (let col = 0; col <= row; col += 1)" in js
+	assert 'cueBall = makeBall(cueX, cueY, "#ffffff", true, 0);' in js
+	assert "rackRows[2][1] = 8;" in js
+
+
+#============================================
+def test_required_core_rule_hooks_present() -> None:
+	"""
+	Ensure requested rule hooks exist for early 8-ball, groups, and turn/foul flow.
+	"""
+	js = read_text(APP_JS)
+	assert "handleEightBallPocket" in js
+	assert "assignGroupsFromFirstPocket" in js
+	assert "finishShotContextAndAdvanceTurn" in js
+	assert "cueScratch" in js

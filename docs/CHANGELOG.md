@@ -55,6 +55,10 @@
 - Changed setup defaults to `1` human player and `1` NPC.
 - Replaced free-text functional-group entry with multiple-choice answer buttons.
 - Updated gameplay docs and smoke tests to cover multiple-choice flow and default setup values.
+- Added beginner-focused install and usage docs: [docs/INSTALL.md](docs/INSTALL.md) and
+  [docs/USAGE.md](docs/USAGE.md), including no-Git ZIP setup and local-server quick start.
+- Simplified root [README.md](../README.md) quick start and added direct links to install and
+  usage docs.
 - Added explicit gameplay phases (`QUESTION_ACTIVE`, `SHOT_READY`, `BALLS_MOVING`) and phase
   transitions on answer correctness, shot release, and post-settle prompt.
 - Fixed shot-readiness UX by hiding the question window in shot phase and restoring it for new
@@ -62,3 +66,23 @@
 - Added pointer capture plus `pointercancel`/`lostpointercapture` handling to prevent stuck drag
   state when pointer release occurs off-canvas.
 - Added smoke assertions for phase markers and hidden-overlay pointer-event guardrails.
+- Fixed idle relock bug by processing settle/new-question transitions only during `BALLS_MOVING`
+  phase, so correct answers are not undone before a shot.
+- Added centralized timeout management for NPC actions and clear-on-reset/turn-change behavior to
+  prevent stale timer callbacks from firing out of turn.
+- Added `Next Group` guard to block bypassing unresolved question/shot cycles.
+- Added startup guards for required DOM elements and canvas context creation.
+- Moved multiple-choice answer buttons into the question popup window for faster in-context play.
+- P0: added deterministic NPC shot planning that targets active object balls and guarantees a
+  non-zero cue-ball velocity each NPC turn.
+- P0: hardened human correct-answer transition by clearing stale scheduled actions before entering
+  shot-ready phase.
+- Implemented true object-ball identity model with cue + balls 1-15, suit typing
+  (solids/stripes/eight), and black 8-ball rack placement near center.
+- Added solid/stripe/number ball rendering with rolling decal rotation based on ball velocity.
+- Added pocketed-ball tray rendering near each pocket so sunk balls remain visible.
+- Added shot context tracking (shooter, pocketed balls, scratch) and settle-time turn advancement.
+- Added per-player pocket stats (total, solids, stripes) into HUD scoring text.
+- Added collision and pocket audio hooks with impact-speed scaling and `Sound: On/Off` toggle.
+- Added smoke assertions for rack identity primitives, pocket tracking/scoring markers, and audio
+  hook wiring.

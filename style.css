@@ -169,6 +169,7 @@ h1 {
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
+	margin: 8px 0;
 }
 
 .choice-btn {

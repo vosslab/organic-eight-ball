@@ -1,5 +1,11 @@
 const canvas = document.getElementById("sim-canvas");
+if (!(canvas instanceof HTMLCanvasElement)) {
+	throw new Error("Required canvas #sim-canvas is missing.");
+}
 const ctx = canvas.getContext("2d");
+if (!ctx) {
+	throw new Error("2D canvas context is unavailable.");
+}
 const rackButton = document.getElementById("shake-btn");
 const nextButton = document.getElementById("next-btn");
 const choicesPanel = document.getElementById("choices");
@@ -14,6 +20,29 @@ const onboardingDismissButton = document.getElementById("onboarding-dismiss-btn"
 const humanCountInput = document.getElementById("human-count");
 const npcCountInput = document.getElementById("npc-count");
 const startGameButton = document.getElementById("start-game-btn");
+const muteButton = document.getElementById("mute-btn");
+const requiredElements = [
+	rackButton,
+	nextButton,
+	choicesPanel,
+	groupImage,
+	answerText,
+	answerMeta,
+	questionWindow,
+	statusDetail,
+	setupModal,
+	onboardingModal,
+	onboardingDismissButton,
+	humanCountInput,
+	npcCountInput,
+	startGameButton,
+	muteButton,
+];
+for (const element of requiredElements) {
+	if (!element) {
+		throw new Error("Required UI element is missing from index.html.");
+	}
+}
 
 const table = {
 	x: 36,
@@ -28,15 +57,38 @@ const BALL_RADIUS = 12;
 const BALL_DIAMETER = BALL_RADIUS * 2;
 const FRICTION = 0.991;
 const REST_FRAMES_REQUIRED = 85;
+const NPC_MIN_SHOT_SPEED = 10;
+const NPC_MAX_SHOT_SPEED = 16;
 const PHASE_QUESTION_ACTIVE = "QUESTION_ACTIVE";
 const PHASE_SHOT_READY = "SHOT_READY";
 const PHASE_BALLS_MOVING = "BALLS_MOVING";
+const SOLIDS = "solids";
+const STRIPES = "stripes";
+const POCKET_COUNT = 6;
+const SUIT_COLORS = {
+	1: "#f1c232",
+	2: "#2c70d7",
+	3: "#d23b2f",
+	4: "#7d3db5",
+	5: "#e07a2f",
+	6: "#2d9b4f",
+	7: "#8a2832",
+	8: "#121212",
+	9: "#f1c232",
+	10: "#2c70d7",
+	11: "#d23b2f",
+	12: "#7d3db5",
+	13: "#e07a2f",
+	14: "#2d9b4f",
+	15: "#8a2832",
+};
 
 const balls = [];
 let cueBall = null;
 let dragging = false;
 let dragStart = null;
 let dragNow = null;
+let activePointerId = null;
 
 let settleFrames = 0;
 let hasSettled = false;
@@ -53,6 +105,15 @@ let groupLoadState = "pending";
 let groupLoadErrorMessage = "";
 let phase = PHASE_QUESTION_ACTIVE;
 const ONBOARDING_KEY = "organic_eight_ball_onboarding_seen_v1";
+const activeTimeoutIds = new Set();
+let pocketedByPocket = {};
+let playerStats = {};
+let groupsAssigned = false;
+let groupOwnerByType = {};
+let shooterId = "";
+let shotContext = null;
+let audioMuted = false;
+let audioContext = null;
 
 const LOCAL_FALLBACK_GROUPS = [
 	{
@@ -77,6 +138,55 @@ const LOCAL_FALLBACK_GROUPS = [
 
 function rand(min, max) {
 	return min + Math.random() * (max - min);
+}
+
+function ensureAudioContext() {
+	if (audioMuted) {
+		return null;
+	}
+	if (!audioContext) {
+		const Ctx = window.AudioContext || window.webkitAudioContext;
+		if (!Ctx) {
+			return null;
+		}
+		audioContext = new Ctx();
+	}
+	if (audioContext.state === "suspended") {
+		audioContext.resume().catch(() => {
+			// Ignore resume failures.
+		});
+	}
+	return audioContext;
+}
+
+function playTone(frequency, durationMs, gain) {
+	const ctxAudio = ensureAudioContext();
+	if (!ctxAudio) {
+		return;
+	}
+	const osc = ctxAudio.createOscillator();
+	const gainNode = ctxAudio.createGain();
+	osc.frequency.value = frequency;
+	osc.type = "triangle";
+	gainNode.gain.value = Math.max(0, Math.min(0.25, gain));
+	osc.connect(gainNode);
+	gainNode.connect(ctxAudio.destination);
+	osc.start();
+	osc.stop(ctxAudio.currentTime + durationMs / 1000);
+}
+
+function emitCollisionAudio(impactSpeed) {
+	const scaled = Math.min(1, impactSpeed / 18);
+	playTone(180 + 100 * scaled, 35, 0.04 + 0.12 * scaled);
+}
+
+function emitPocketAudio(impactSpeed) {
+	const scaled = Math.min(1, impactSpeed / 20);
+	playTone(320 + 120 * scaled, 90, 0.06 + 0.16 * scaled);
+}
+
+function updateMuteButton() {
+	muteButton.textContent = `Sound: ${audioMuted ? "Off" : "On"}`;
 }
 
 function shuffleList(items) {
@@ -113,6 +223,22 @@ function setChoicesEnabled(enabled) {
 	}
 }
 
+function scheduleAction(callback, delayMs) {
+	const timerId = window.setTimeout(() => {
+		activeTimeoutIds.delete(timerId);
+		callback();
+	}, delayMs);
+	activeTimeoutIds.add(timerId);
+	return timerId;
+}
+
+function clearScheduledActions() {
+	for (const timerId of activeTimeoutIds) {
+		window.clearTimeout(timerId);
+	}
+	activeTimeoutIds.clear();
+}
+
 function syncQuestionWindow() {
 	if (!questionWindow) {
 		return;
@@ -126,7 +252,20 @@ function setPhase(nextPhase) {
 	syncQuestionWindow();
 }
 
-function makeBall(x, y, color, isCue = false) {
+function ballSuitForNumber(number) {
+	if (number >= 1 && number <= 7) {
+		return SOLIDS;
+	}
+	if (number >= 9 && number <= 15) {
+		return STRIPES;
+	}
+	if (number === 8) {
+		return "eight";
+	}
+	return "cue";
+}
+
+function makeBall(x, y, color, isCue = false, number = 0) {
 	return {
 		x,
 		y,
@@ -135,31 +274,76 @@ function makeBall(x, y, color, isCue = false) {
 		r: BALL_RADIUS,
 		isCue,
 		active: true,
-		color
+		color,
+		number,
+		suit: ballSuitForNumber(number),
+		rotation: 0,
+		pocketId: null,
 	};
+}
+
+function resetPocketedTracker() {
+	pocketedByPocket = {};
+	for (let i = 0; i < POCKET_COUNT; i += 1) {
+		pocketedByPocket[i] = [];
+	}
+}
+
+function buildRackNumbers() {
+	const solids = shuffleList([1, 2, 3, 4, 5, 6, 7]);
+	const stripes = shuffleList([9, 10, 11, 12, 13, 14, 15]);
+	const rackRows = [[], [], [], [], []];
+	rackRows[2][1] = 8;
+	rackRows[0][0] = solids.pop();
+	rackRows[4][0] = stripes.pop();
+	rackRows[4][4] = solids.pop();
+	const remaining = shuffleList([...solids, ...stripes]);
+	for (let row = 0; row < 5; row += 1) {
+		for (let col = 0; col <= row; col += 1) {
+			if (rackRows[row][col]) {
+				continue;
+			}
+			rackRows[row][col] = remaining.pop();
+		}
+	}
+	return rackRows;
+}
+
+function ensurePlayerStats() {
+	playerStats = {};
+	for (const p of players) {
+		playerStats[p.id] = {
+			quiz: 0,
+			pocketed: 0,
+			solids: 0,
+			stripes: 0,
+		};
+	}
+	groupsAssigned = false;
+	groupOwnerByType = {};
 }
 
 function rackBalls() {
 	if (!gameStarted) {
 		return;
 	}
+	clearScheduledActions();
 	balls.length = 0;
+	resetPocketedTracker();
 	const cueX = table.x + table.w * 0.23;
 	const cueY = table.y + table.h / 2;
-	cueBall = makeBall(cueX, cueY, "#ffffff", true);
+	cueBall = makeBall(cueX, cueY, "#ffffff", true, 0);
 	balls.push(cueBall);
 
 	const rackX = table.x + table.w * 0.72;
 	const rackY = table.y + table.h / 2;
-	const rowColors = ["#f0c43a", "#3da6ff", "#de4a3c", "#8f5ce5", "#44b977"];
-	let count = 1;
+	const rackRows = buildRackNumbers();
 	for (let row = 0; row < 5; row += 1) {
 		for (let col = 0; col <= row; col += 1) {
 			const x = rackX + row * (BALL_DIAMETER * 0.88);
 			const y = rackY - row * BALL_RADIUS + col * BALL_DIAMETER;
-			const color = rowColors[count % rowColors.length];
-			balls.push(makeBall(x, y, color));
-			count += 1;
+			const number = rackRows[row][col];
+			balls.push(makeBall(x, y, SUIT_COLORS[number], false, number));
 		}
 	}
 
@@ -173,9 +357,12 @@ function rackBalls() {
 	scoreCorrect = 0;
 	scoreTotal = 0;
 	playerCorrect = {};
+	ensurePlayerStats();
 	for (const p of players) {
 		playerCorrect[p.id] = 0;
 	}
+	shotContext = null;
+	shooterId = "";
 	currentTurnIndex = 0;
 	shotUnlocked = false;
 	resetRunState();
@@ -213,6 +400,79 @@ function pocketCenters() {
 	];
 }
 
+function currentShooterStats() {
+	if (!shooterId || !playerStats[shooterId]) {
+		return null;
+	}
+	return playerStats[shooterId];
+}
+
+function assignGroupsFromFirstPocket(ball) {
+	if (groupsAssigned || ball.isCue || !shooterId) {
+		return;
+	}
+	if (ball.suit !== SOLIDS && ball.suit !== STRIPES) {
+		return;
+	}
+	groupsAssigned = true;
+	groupOwnerByType[ball.suit] = shooterId;
+	if (players.length === 2) {
+		const other = players.find((p) => p.id !== shooterId);
+		if (other) {
+			groupOwnerByType[ball.suit === SOLIDS ? STRIPES : SOLIDS] = other.id;
+		}
+	}
+}
+
+function handleEightBallPocket(ball) {
+	if (ball.number !== 8 || !shooterId) {
+		return;
+	}
+	const shooter = playerStats[shooterId];
+	if (!shooter) {
+		return;
+	}
+	let isWin = false;
+	if (!groupsAssigned) {
+		isWin = false;
+	} else {
+		const ownGroup = groupOwnerByType[SOLIDS] === shooterId ? SOLIDS : STRIPES;
+		const remaining = balls.some((b) => b.active && b.suit === ownGroup);
+		isWin = !remaining;
+	}
+	answerText.textContent = isWin
+		? `${shooterId} pockets the 8-ball legally and wins the rack.`
+		: `${shooterId} pockets the 8-ball early and loses the rack.`;
+}
+
+function onBallPocketed(ball, pocketId) {
+	if (!ball || ball.isCue) {
+		if (shotContext) {
+			shotContext.cueScratch = true;
+		}
+		return;
+	}
+	assignGroupsFromFirstPocket(ball);
+	if (shotContext) {
+		shotContext.pocketed.push(ball.number);
+		shotContext.pocketIds.push(pocketId);
+	}
+	const shooter = currentShooterStats();
+	if (shooter) {
+		shooter.pocketed += 1;
+		if (ball.suit === SOLIDS) {
+			shooter.solids += 1;
+		}
+		if (ball.suit === STRIPES) {
+			shooter.stripes += 1;
+		}
+	}
+	pocketedByPocket[pocketId].push(ball);
+	const speed = Math.hypot(ball.vx, ball.vy);
+	emitPocketAudio(speed);
+	handleEightBallPocket(ball);
+}
+
 function handleCushion(ball) {
 	const bounds = tableBounds();
 	if (ball.x - ball.r < bounds.left) {
@@ -234,7 +494,9 @@ function handleCushion(ball) {
 }
 
 function handlePocket(ball) {
-	for (const pocket of pocketCenters()) {
+	const pockets = pocketCenters();
+	for (let pocketId = 0; pocketId < pockets.length; pocketId += 1) {
+		const pocket = pockets[pocketId];
 		const dx = ball.x - pocket.x;
 		const dy = ball.y - pocket.y;
 		if (Math.hypot(dx, dy) <= table.pocketR - 2) {
@@ -243,8 +505,11 @@ function handlePocket(ball) {
 				ball.y = table.y + table.h / 2;
 				ball.vx = 0;
 				ball.vy = 0;
+				onBallPocketed(ball, pocketId);
 			} else {
 				ball.active = false;
+				ball.pocketId = pocketId;
+				onBallPocketed(ball, pocketId);
 			}
 			return;
 		}
@@ -280,10 +545,14 @@ function resolveBallCollision(a, b) {
 	a.vy -= impulse * ny;
 	b.vx += impulse * nx;
 	b.vy += impulse * ny;
+	emitCollisionAudio(Math.abs(sepVel));
 }
 
 function updatePhysics() {
 	if (!gameStarted) {
+		return;
+	}
+	if (phase !== PHASE_BALLS_MOVING) {
 		return;
 	}
 	let movingCount = 0;
@@ -325,6 +594,7 @@ function updatePhysics() {
 
 	if (!hasSettled && settleFrames >= REST_FRAMES_REQUIRED) {
 		hasSettled = true;
+		finishShotContextAndAdvanceTurn();
 		drawNewGroup();
 	}
 }
@@ -354,18 +624,30 @@ function drawBalls() {
 		if (!ball.active) {
 			continue;
 		}
+		const speed = Math.hypot(ball.vx, ball.vy);
+		ball.rotation += speed * 0.08;
 		ctx.beginPath();
 		ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-		ctx.fillStyle = ball.color;
+		ctx.fillStyle = ball.isCue ? "#ffffff" : ball.color;
 		ctx.fill();
 		ctx.strokeStyle = "#081512";
 		ctx.lineWidth = 2;
 		ctx.stroke();
-		if (!ball.isCue) {
+		if (!ball.isCue && ball.suit === STRIPES) {
 			ctx.beginPath();
-			ctx.arc(ball.x, ball.y, ball.r * 0.45, 0, Math.PI * 2);
-			ctx.strokeStyle = "#e8efe8";
-			ctx.lineWidth = 1.5;
+			ctx.ellipse(
+				ball.x,
+				ball.y,
+				ball.r * 0.95,
+				ball.r * 0.55,
+				ball.rotation,
+				0,
+				Math.PI * 2
+			);
+			ctx.fillStyle = "#ffffff";
+			ctx.fill();
+			ctx.strokeStyle = "#f4f4f4";
+			ctx.lineWidth = 1;
 			ctx.stroke();
 		}
 		if (ball.isCue) {
@@ -382,6 +664,49 @@ function drawBalls() {
 				ctx.strokeStyle = isShotLocked() ? "rgba(255, 126, 126, 0.9)" : "rgba(166, 241, 199, 0.9)";
 				ctx.stroke();
 			}
+		}
+		if (!ball.isCue) {
+			ctx.save();
+			ctx.translate(ball.x, ball.y);
+			ctx.rotate(ball.rotation);
+			ctx.beginPath();
+			ctx.arc(0, 0, ball.r * 0.42, 0, Math.PI * 2);
+			ctx.fillStyle = "#ffffff";
+			ctx.fill();
+			ctx.strokeStyle = "#d5d5d5";
+			ctx.lineWidth = 1;
+			ctx.stroke();
+			ctx.fillStyle = ball.number === 8 ? "#ffffff" : "#121212";
+			ctx.font = "bold 9px Trebuchet MS";
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillText(String(ball.number), 0, 0);
+			ctx.restore();
+		}
+	}
+}
+
+function drawPocketedTrays() {
+	const pockets = pocketCenters();
+	for (let pocketId = 0; pocketId < pockets.length; pocketId += 1) {
+		const list = pocketedByPocket[pocketId] || [];
+		if (list.length === 0) {
+			continue;
+		}
+		const pocket = pockets[pocketId];
+		for (let i = 0; i < list.length; i += 1) {
+			const ball = list[i];
+			const angle = (Math.PI / 4) * (i % 6);
+			const ring = Math.floor(i / 6) + 1;
+			const rx = pocket.x + Math.cos(angle) * (table.pocketR + 8 + ring * 10);
+			const ry = pocket.y + Math.sin(angle) * (table.pocketR + 8 + ring * 10);
+			ctx.beginPath();
+			ctx.arc(rx, ry, 7, 0, Math.PI * 2);
+			ctx.fillStyle = ball.color;
+			ctx.fill();
+			ctx.strokeStyle = "#0d1412";
+			ctx.lineWidth = 1.2;
+			ctx.stroke();
 		}
 	}
 }
@@ -403,6 +728,7 @@ function drawAimLine() {
 function drawScene() {
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	drawTable();
+	drawPocketedTrays();
 	drawBalls();
 	drawCueHelperText();
 	drawAimLine();
@@ -426,9 +752,15 @@ function updateScoreLabel() {
 		return;
 	}
 	const p = currentPlayer();
-	const parts = players.map((player) => `${player.label}:${playerCorrect[player.id] || 0}`);
+	const parts = players.map((player) => {
+		const stats = playerStats[player.id] || {};
+		const pockets = stats.pocketed || 0;
+		const solids = stats.solids || 0;
+		const stripes = stats.stripes || 0;
+		return `${player.label} Q${playerCorrect[player.id] || 0} P${pockets} S${solids}/${stripes}`;
+	});
 	answerMeta.textContent =
-		`${p.label} turn | Team ${scoreCorrect}/${scoreTotal} | ${parts.join(" | ")}`;
+		`${p.label} turn | Team Quiz ${scoreCorrect}/${scoreTotal} | ${parts.join(" | ")}`;
 	if (groupLoadState === "fallback") {
 		answerMeta.textContent += " | Using local fallback prompts";
 	}
@@ -444,10 +776,38 @@ function updateStatusBanner() {
 	}
 	const p = currentPlayer();
 	const shotState = isShotLocked() ? "Shot locked" : "Shot unlocked";
-	statusDetail.textContent = `${p.label} turn | ${shotState} | ${phase}`;
+	let groupText = "groups unassigned";
+	if (groupsAssigned) {
+		groupText = `solids:${groupOwnerByType[SOLIDS] || "?"} stripes:${groupOwnerByType[STRIPES] || "?"}`;
+	}
+	statusDetail.textContent = `${p.label} turn | ${shotState} | ${phase} | ${groupText}`;
+}
+
+function beginShotContext() {
+	const p = currentPlayer();
+	shooterId = p ? p.id : "";
+	shotContext = {
+		pocketed: [],
+		pocketIds: [],
+		cueScratch: false,
+	};
+}
+
+function finishShotContextAndAdvanceTurn() {
+	if (!shotContext) {
+		switchTurn();
+		return;
+	}
+	const keepTurn = shotContext.pocketed.length > 0 && !shotContext.cueScratch;
+	if (!keepTurn) {
+		switchTurn();
+	}
+	shotContext = null;
+	shooterId = "";
 }
 
 function switchTurn() {
+	clearScheduledActions();
 	currentTurnIndex = (currentTurnIndex + 1) % players.length;
 	shotUnlocked = false;
 	updateScoreLabel();
@@ -459,7 +819,7 @@ function npcTryAnswer() {
 	if (!p || !p.isNpc || !currentGroup) {
 		return;
 	}
-	const isCorrect = Math.random() < 0.58;
+	const isCorrect = true;
 	scoreTotal += 1;
 	if (isCorrect) {
 		scoreCorrect += 1;
@@ -468,7 +828,7 @@ function npcTryAnswer() {
 		answerText.textContent = `${p.label} answered correctly. Shot unlocked.`;
 		updateScoreLabel();
 		updateStatusBanner();
-		setTimeout(() => {
+		scheduleAction(() => {
 			if (currentPlayer() && currentPlayer().id === p.id && shotUnlocked) {
 				npcShoot();
 			}
@@ -478,13 +838,14 @@ function npcTryAnswer() {
 		switchTurn();
 		updateScoreLabel();
 		updateStatusBanner();
-		setTimeout(() => {
+		scheduleAction(() => {
 			drawNewGroup();
 		}, 500);
 	}
 }
 
 function drawNewGroup() {
+	clearScheduledActions();
 	if (groupPool.length === 0 || players.length === 0) {
 		answerText.textContent = groupLoadErrorMessage || "No functional group data loaded.";
 		return;
@@ -503,7 +864,7 @@ function drawNewGroup() {
 	if (p.isNpc) {
 		answerText.textContent = `${p.label} is answering...`;
 		setChoicesEnabled(false);
-		setTimeout(() => {
+		scheduleAction(() => {
 			npcTryAnswer();
 		}, 800);
 	} else {
@@ -560,6 +921,7 @@ function handleChoiceAnswer(choiceText) {
 		playerCorrect[p.id] += 1;
 		shotUnlocked = true;
 		setPhase(PHASE_SHOT_READY);
+		clearScheduledActions();
 		answerText.textContent = `Correct. ${p.label} shot unlocked.`;
 		setChoicesEnabled(false);
 	} else {
@@ -569,6 +931,38 @@ function handleChoiceAnswer(choiceText) {
 	}
 	updateScoreLabel();
 	updateStatusBanner();
+}
+
+function planNpcShotVector() {
+	if (!cueBall) {
+		return { vx: NPC_MIN_SHOT_SPEED, vy: 0 };
+	}
+	const candidates = balls.filter((ball) => !ball.isCue && ball.active);
+	if (candidates.length === 0) {
+		return { vx: NPC_MIN_SHOT_SPEED, vy: 0 };
+	}
+	let target = candidates[0];
+	let bestDist = Infinity;
+	for (const ball of candidates) {
+		const dx = ball.x - cueBall.x;
+		const dy = ball.y - cueBall.y;
+		const dist = Math.hypot(dx, dy);
+		if (dist < bestDist) {
+			bestDist = dist;
+			target = ball;
+		}
+	}
+	const dx = target.x - cueBall.x;
+	const dy = target.y - cueBall.y;
+	const mag = Math.hypot(dx, dy);
+	if (mag <= 0.0001) {
+		return { vx: NPC_MIN_SHOT_SPEED, vy: 0 };
+	}
+	const speed = rand(NPC_MIN_SHOT_SPEED, NPC_MAX_SHOT_SPEED);
+	return {
+		vx: (dx / mag) * speed,
+		vy: (dy / mag) * speed,
+	};
 }
 
 function shootFromDrag() {
@@ -594,6 +988,7 @@ function shootFromDrag() {
 	cueBall.vx = (dx / mag) * power;
 	cueBall.vy = (dy / mag) * power;
 	shotUnlocked = false;
+	beginShotContext();
 	setPhase(PHASE_BALLS_MOVING);
 	resetRunState();
 	answerText.textContent = `${p.label} shot in motion...`;
@@ -604,11 +999,15 @@ function npcShoot() {
 	if (!cueBall || !cueBall.active) {
 		return;
 	}
-	const angle = rand(-0.5, 0.5);
-	const power = rand(8, 16);
-	cueBall.vx = Math.cos(angle) * power;
-	cueBall.vy = Math.sin(angle) * power;
+	const vector = planNpcShotVector();
+	cueBall.vx = vector.vx;
+	cueBall.vy = vector.vy;
+	if (Math.hypot(cueBall.vx, cueBall.vy) < 0.5) {
+		cueBall.vx = NPC_MIN_SHOT_SPEED;
+		cueBall.vy = 0;
+	}
 	shotUnlocked = false;
+	beginShotContext();
 	setPhase(PHASE_BALLS_MOVING);
 	resetRunState();
 	const p = currentPlayer();
@@ -644,11 +1043,26 @@ function dismissOnboarding() {
 	onboardingModal.classList.add("hidden");
 }
 
+function handleNextGroupRequest() {
+	if (!gameStarted) {
+		return;
+	}
+	if (currentGroup) {
+		answerText.textContent = "Next Group blocked: finish the current question/shot cycle first.";
+		return;
+	}
+	drawNewGroup();
+}
+
 function installInputHooks() {
 	rackButton.addEventListener("click", () => rackBalls());
-	nextButton.addEventListener("click", () => drawNewGroup());
+	nextButton.addEventListener("click", () => handleNextGroupRequest());
 	startGameButton.addEventListener("click", () => startGameFromSetup());
 	onboardingDismissButton.addEventListener("click", () => dismissOnboarding());
+	muteButton.addEventListener("click", () => {
+		audioMuted = !audioMuted;
+		updateMuteButton();
+	});
 
 	canvas.addEventListener("pointerdown", (event) => {
 		if (!gameStarted || !cueBall || !cueBall.active) {
@@ -669,6 +1083,7 @@ function installInputHooks() {
 		const d = Math.hypot(px - cueBall.x, py - cueBall.y);
 		if (d <= cueBall.r + 18) {
 			canvas.setPointerCapture(event.pointerId);
+			activePointerId = event.pointerId;
 			dragging = true;
 			dragStart = { x: cueBall.x, y: cueBall.y };
 			dragNow = { x: px, y: py };
@@ -687,7 +1102,19 @@ function installInputHooks() {
 	});
 
 	function clearDragState() {
+		if (
+			activePointerId !== null &&
+			canvas.hasPointerCapture &&
+			canvas.hasPointerCapture(activePointerId)
+		) {
+			try {
+				canvas.releasePointerCapture(activePointerId);
+			} catch {
+				// Ignore release failures.
+			}
+		}
 		dragging = false;
+		activePointerId = null;
 		dragStart = null;
 		dragNow = null;
 	}
@@ -707,6 +1134,7 @@ function installInputHooks() {
 }
 
 function startGameFromSetup() {
+	clearScheduledActions();
 	const humanCount = Math.max(1, Math.min(8, Number.parseInt(humanCountInput.value, 10) || 1));
 	const npcCount = Math.max(0, Math.min(8, Number.parseInt(npcCountInput.value, 10) || 0));
 	players = [];
@@ -777,6 +1205,7 @@ async function loadGroups() {
 
 async function main() {
 	installInputHooks();
+	updateMuteButton();
 	setPhase(PHASE_QUESTION_ACTIVE);
 	updateScoreLabel();
 	updateStatusBanner();

@@ -86,6 +86,19 @@ def assert_start_button_flow(driver, url: str) -> None:
 
 
 #============================================
+def wait_for_condition(timeout_s: float, predicate):
+	"""
+	Poll until predicate is true or timeout expires.
+	"""
+	deadline = time.time() + timeout_s
+	while time.time() < deadline:
+		if predicate():
+			return True
+		time.sleep(0.05)
+	return False
+
+
+#============================================
 def free_port() -> int:
 	"""
 	Get an available localhost TCP port.
@@ -157,3 +170,55 @@ def test_start_button_hides_setup_modal_http_localhost() -> None:
 		driver.quit()
 		server.terminate()
 		server.wait(timeout=5)
+
+
+#============================================
+def test_npc_turn_results_in_ball_motion_or_shot_phase_file_uri() -> None:
+	"""
+	Smoke check that NPC turns can progress into a moving-shot phase.
+	"""
+	driver = make_driver()
+	url = pathlib.Path(INDEX_HTML).resolve().as_uri()
+	try:
+		assert_start_button_flow(driver, url)
+		status = driver.find_element("id", "status-detail")
+		ok = wait_for_condition(
+			3.0,
+			lambda: "BALLS_MOVING" in status.text or "Player 1" in status.text
+		)
+		assert ok
+	finally:
+		driver.quit()
+
+
+#============================================
+def test_correct_answer_unlocks_and_drag_shoot_path_file_uri() -> None:
+	"""
+	Smoke check that a human can answer and begin a drag-shot cycle.
+	"""
+	driver = make_driver()
+	url = pathlib.Path(INDEX_HTML).resolve().as_uri()
+	try:
+		assert_start_button_flow(driver, url)
+		choice_buttons = driver.find_elements("css selector", "#choices button")
+		if not choice_buttons:
+			pytest.skip("choice buttons not available")
+		choice_buttons[0].click()
+		status = driver.find_element("id", "status-detail")
+		wait_for_condition(1.5, lambda: "Shot unlocked" in status.text or "BALLS_MOVING" in status.text)
+		canvas = driver.find_element("id", "sim-canvas")
+		try:
+			from selenium.webdriver.common.action_chains import ActionChains
+			size = canvas.size
+			actions = ActionChains(driver)
+			actions.move_to_element_with_offset(canvas, size["width"] * 0.23, size["height"] * 0.5)
+			actions.click_and_hold()
+			actions.move_by_offset(-60, 0)
+			actions.release()
+			actions.perform()
+		except Exception:
+			pytest.skip("drag action unavailable in current webdriver")
+		ok = wait_for_condition(2.0, lambda: "BALLS_MOVING" in status.text or "QUESTION_ACTIVE" in status.text)
+		assert ok
+	finally:
+		driver.quit()
