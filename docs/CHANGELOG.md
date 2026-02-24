@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-02-24
+
+- Added high-level game concept specification in [docs/GAME_CONCEPT_SPEC.md](docs/GAME_CONCEPT_SPEC.md)
+  covering goals, design pillars, learning loop, and non-goals independent of implementation.
+
 ## 2026-02-10
 
 - Added first playable browser prototype: `index.html`, `style.css`, and `app.js`.
